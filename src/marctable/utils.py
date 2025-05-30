@@ -4,7 +4,6 @@ from typing import (
     BinaryIO,
     Dict,
     Generator,
-    Iterator,
     List,
     Optional,
     TextIO,
