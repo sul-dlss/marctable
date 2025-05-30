@@ -86,11 +86,28 @@ $ marctable jsonl data.marc data.jsonl
 
 ## Regenerate Avram Schema
 
-You can also regenerate the [Avram] [JSON file] from the Library of Congress website:
+You can regenerate the [Avram] [JSON file] from the Library of Congress website:
 
 ```
 $ marctable avram
 ```
+
+## Library
+
+You can use marctable in your own programs. You need to pass various functions either a list of `pymarc.Record` objects or a generator of `pymarc.Record` objects:
+
+```python
+from pymarc import MARCReader
+from marctable import to_parquet
+
+# MARCReader will generate Record objects
+records = MARCReader(open("records.dat", "rb"))
+
+# convert the records to a Parquet file
+to_parquet(records, open("records.parquet", "wb"))
+```
+
+There are similar `to_csv()`, `to_jsonl()` and `to_dataframe()` functions as well. Be careful with `to_dataframe()` because unlike the other functions it will load all the records into memory.
 
 ## Develop
 

@@ -1,59 +1,72 @@
 import json
-from typing import BinaryIO, Dict, Generator, List, Optional, TextIO, Tuple, Union, IO, Any
+from itertools import batched
+from typing import (
+    BinaryIO,
+    Dict,
+    Generator,
+    Iterator,
+    List,
+    Optional,
+    TextIO,
+    Tuple,
+    Union,
+    IO,
+    Any,
+)
 
+import pandas
 import pyarrow
-import pymarc
 from pandas import DataFrame
 from pyarrow.parquet import ParquetWriter
+from pymarc import Record, Field, MARCReader
 
 from .marc import MARC
 
+# type alises to shorten annotations
 ListOrString = Union[str, List[str]]
-
-
-def to_dataframe(marc_input: BinaryIO, rules: list = []) -> DataFrame:
-    """
-    Return a single DataFrame for the entire dataset.
-    """
-    return next(dataframe_iter(marc_input, rules, batch=0))
+Records = List[Record] | MARCReader
 
 
 def to_csv(
-    marc_input: BinaryIO,
+    records: Records,
     csv_output: TextIO,
     rules: list = [],
-    batch: int = 1000,
+    batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> None:
     """
     Convert MARC to CSV.
     """
     first_batch = True
-    for df in dataframe_iter(marc_input, rules=rules, batch=batch, avram_file=avram_file):
+    for df in dataframe_iter(
+        records, rules=rules, batch_size=batch_size, avram_file=avram_file
+    ):
         df.to_csv(csv_output, header=first_batch, index=False)
         first_batch = False
 
 
 def to_jsonl(
-    marc_input: BinaryIO,
+    records: Records,
     jsonl_output: BinaryIO,
     rules: list = [],
-    batch: int = 1000,
+    batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> None:
     """
     Convert MARC to JSON Lines (JSONL).
     """
-    for records in records_iter(marc_input, rules=rules, batch=batch, avram_file=avram_file):
-        for record in records:
+    for records_batch in process_records(
+        records, rules=rules, batch_size=batch_size, avram_file=avram_file
+    ):
+        for record in records_batch:
             jsonl_output.write(json.dumps(record).encode("utf8") + b"\n")
 
 
 def to_parquet(
-    marc_input: BinaryIO,
+    records: Records,
     parquet_output: IO[Any],
     rules: list = [],
-    batch: int = 1000,
+    batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> None:
     """
@@ -61,96 +74,112 @@ def to_parquet(
     """
     schema = _make_parquet_schema(rules, avram_file)
     writer = ParquetWriter(parquet_output, schema, compression="snappy")
-    for records_batch in records_iter(marc_input, rules=rules, batch=batch, avram_file=avram_file):
+    for records_batch in process_records(
+        records, rules=rules, batch_size=batch_size, avram_file=avram_file
+    ):
         table = pyarrow.Table.from_pylist(records_batch, schema)
         writer.write_table(table)
 
     writer.close()
 
 
+def to_dataframe(
+    records: Records,
+    rules: list = [],
+    batch_size=1000,
+    avram_file: Optional[BinaryIO] = None,
+) -> DataFrame:
+    """
+    A convenience function that returns a single DataFrame for all the records.
+    WARNING: It will build the entire DataFrame in memory, so be careful!
+    """
+    return pandas.concat(
+        list(dataframe_iter(records, rules, batch_size, avram_file)), axis=0
+    )
+
+
 def dataframe_iter(
-    marc_input: BinaryIO, rules: list = [], batch: int = 1000, avram_file: Optional[BinaryIO] = None
+    records: Records,
+    rules: list = [],
+    batch_size: int = 1000,
+    avram_file: Optional[BinaryIO] = None,
 ) -> Generator[DataFrame, None, None]:
+    """
+    Read the records and generates Panda Data Frames of a given size.
+    """
     columns = _columns(_mapping(rules, avram_file))
-    for records_batch in records_iter(marc_input, rules, batch, avram_file=avram_file):
+    for records_batch in process_records(
+        records, rules, batch_size, avram_file=avram_file
+    ):
         yield DataFrame.from_records(records_batch, columns=columns)
 
 
-def records_iter(
-    marc_input: BinaryIO, rules: list = [], batch: int = 1000, avram_file: Optional[BinaryIO] = None,
+def process_records(
+    records: Records,
+    rules: list = [],
+    batch_size: int = 1000,
+    avram_file: Optional[BinaryIO] = None,
 ) -> Generator[List[Dict], None, None]:
     """
-    Read MARC input and generate a list of dictionaries, where each list element
-    represents a MARC record.
+    Iterate through MARCRecords and return a generator of batches of records
+    represented as a list of dictionaries, which are constructed with the given rules.
     """
     mapping = _mapping(rules, avram_file)
     marc = MARC.from_avram(avram_file)
 
-    # TODO: MARCXML parsing brings all the records into memory
-    if marc_input.name.endswith(".xml"):
-        reader = pymarc.marcxml.parse_xml_to_array(marc_input)
-    else:
-        reader = pymarc.MARCReader(marc_input)
-
-    rows = []
-    for record in reader:
-        # if pymarc can't make sense of a record it returns None
-        if record is None:
-            # TODO: log this?
-            continue
-
-        r: Dict[str, ListOrString] = {}
-        for field in record.fields:
-            if field.tag not in mapping:
+    for batch in batched(records, batch_size):
+        rows = []
+        for record in batch:
+            # if pymarc can't make sense of a record it returns None
+            if record is None:
+                # TODO: log this?
                 continue
 
-            subfields = mapping[field.tag]
+            r: Dict[str, ListOrString] = {}
+            for field in record.fields:
+                if field.tag not in mapping:
+                    continue
 
-            # if subfields aren't specified stringify them
-            if subfields is None:
-                key = f"F{field.tag}"
-                if marc.get_field(field.tag).repeatable:
-                    lst = r.get(key, [])
-                    assert isinstance(lst, list), (
-                        "Repeatable field contains a string instead of a list"
-                    )
-                    lst.append(_stringify_field(field))
-                    r[key] = lst
-                else:
-                    s = _stringify_field(field)
-                    r[key] = s
+                subfields = mapping[field.tag]
 
-            # otherwise only add the subfields that were requested in the mapping
-            else:
-                for sf in field.subfields:
-                    if sf.code not in subfields:
-                        continue
-
-                    key = f"F{field.tag}{sf.code}"
-                    if marc.get_subfield(field.tag, sf.code).repeatable:
-                        value: ListOrString = r.get(key, [])
-                        assert isinstance(value, list), (
-                            "Repeatable field contains a string instead of list"
+                # if subfields aren't specified stringify them
+                if subfields is None:
+                    key = f"F{field.tag}"
+                    if marc.get_field(field.tag).repeatable:
+                        lst = r.get(key, [])
+                        assert isinstance(lst, list), (
+                            "Repeatable field contains a string instead of a list"
                         )
-                        value.append(sf.value)
+                        lst.append(_stringify_field(field))
+                        r[key] = lst
                     else:
-                        value = sf.value
+                        s = _stringify_field(field)
+                        r[key] = s
 
-                    r[key] = value
+                # otherwise only add the subfields that were requested in the mapping
+                else:
+                    for sf in field.subfields:
+                        if sf.code not in subfields:
+                            continue
 
-        rows.append(r)
+                        key = f"F{field.tag}{sf.code}"
+                        if marc.get_subfield(field.tag, sf.code).repeatable:
+                            value: ListOrString = r.get(key, [])
+                            assert isinstance(value, list), (
+                                "Repeatable field contains a string instead of list"
+                            )
+                            value.append(sf.value)
+                        else:
+                            value = sf.value
 
-        # yield a batch of rows when it is ready
-        if batch > 0 and len(rows) == batch:
-            yield rows
-            rows = []
+                        r[key] = value
 
-    # return any remaining rows
-    if len(rows) > 0:
+            rows.append(r)
+
         yield rows
 
 
-def _stringify_field(field: pymarc.Field) -> str:
+def _stringify_field(field: Field) -> str:
     if field.is_control_field():
         return field.data if field.data is not None else ""
     else:
@@ -198,7 +227,9 @@ def _columns(mapping: dict) -> list:
     return cols
 
 
-def _make_pandas_schema(rules: list, avram_file: Optional[BinaryIO] = None) -> Dict[str, str]:
+def _make_pandas_schema(
+    rules: list, avram_file: Optional[BinaryIO] = None
+) -> Dict[str, str]:
     marc = MARC.from_avram(avram_file)
     mapping = _mapping(rules, avram_file)
     schema = {}
@@ -215,7 +246,9 @@ def _make_pandas_schema(rules: list, avram_file: Optional[BinaryIO] = None) -> D
     return schema
 
 
-def _make_parquet_schema(rules: list, avram_file: Optional[BinaryIO] = None) -> pyarrow.Schema:
+def _make_parquet_schema(
+    rules: list, avram_file: Optional[BinaryIO] = None
+) -> pyarrow.Schema:
     marc = MARC.from_avram(avram_file)
     mapping = _mapping(rules, avram_file)
 

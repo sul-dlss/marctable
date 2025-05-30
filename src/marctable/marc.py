@@ -13,6 +13,7 @@ import json
 import pathlib
 import re
 import sys
+import time
 from functools import cache
 from typing import IO, Generator, List, Optional, Type
 from urllib.parse import urljoin
@@ -211,5 +212,9 @@ def crawl(n: int = 0, quiet: bool = False, outfile: IO = sys.stdout) -> None:
     marc.to_avram(outfile)
 
 
+http = requests.Session()
+
+
 def _soup(url: str) -> BeautifulSoup:
-    return BeautifulSoup(requests.get(url).text, "html.parser")
+    time.sleep(1)  # server seems to block if you crawl too fast
+    return BeautifulSoup(http.get(url).text, "html.parser")

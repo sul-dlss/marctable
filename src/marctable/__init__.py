@@ -1,11 +1,12 @@
 from collections.abc import Callable
-from typing import BinaryIO, TextIO, IO, Any
+from typing import IO, Any, BinaryIO, TextIO
 
 import click
+from pymarc import MARCReader
+from pymarc.marcxml import parse_xml_to_array
 
-import marctable.marc
-
-from .utils import to_csv, to_jsonl, to_parquet
+from marctable.marc import crawl
+from marctable.utils import to_csv, to_jsonl, to_parquet
 
 
 @click.group()
@@ -54,33 +55,45 @@ def avram_params(f: Callable) -> Callable:
 @io_params
 @rule_params
 @avram_params
-def csv(infile: BinaryIO, outfile: TextIO, rules: list, batch: int, avram_file: BinaryIO) -> None:
+def csv(
+    infile: BinaryIO, outfile: TextIO, rules: list, batch: int, avram_file: BinaryIO
+) -> None:
     """
     Convert MARC to CSV.
     """
-    to_csv(infile, outfile, rules=rules, batch=batch, avram_file=avram_file)
+    to_csv(
+        _records(infile), outfile, rules=rules, batch_size=batch, avram_file=avram_file
+    )
 
 
 @cli.command()
 @io_params
 @rule_params
 @avram_params
-def parquet(infile: BinaryIO, outfile: IO[Any], rules: list, batch: int, avram_file: BinaryIO) -> None:
+def parquet(
+    infile: BinaryIO, outfile: IO[Any], rules: list, batch: int, avram_file: BinaryIO
+) -> None:
     """
     Convert MARC to Parquet.
     """
-    to_parquet(infile, outfile, rules=rules, batch=batch, avram_file=avram_file)
+    to_parquet(
+        _records(infile), outfile, rules=rules, batch_size=batch, avram_file=avram_file
+    )
 
 
 @cli.command()
 @io_params
 @rule_params
 @avram_params
-def jsonl(infile: BinaryIO, outfile: BinaryIO, rules: list, batch: int, avram_file: BinaryIO) -> None:
+def jsonl(
+    infile: BinaryIO, outfile: BinaryIO, rules: list, batch: int, avram_file: BinaryIO
+) -> None:
     """
     Convert MARC to JSON Lines (JSONL)
     """
-    to_jsonl(infile, outfile, rules=rules, batch=batch, avram_file=avram_file)
+    to_jsonl(
+        _records(infile), outfile, rules=rules, batch_size=batch, avram_file=avram_file
+    )
 
 
 @cli.command()
@@ -89,8 +102,15 @@ def avram(outfile: TextIO) -> None:
     """
     Generate an Avram schema (JSON) from the Library of Congress MARC bibliographic web.
     """
-    marctable.marc.crawl(outfile=outfile)
+    crawl(outfile=outfile)
 
 
 def main() -> None:
     cli()
+
+
+def _records(infile: BinaryIO) -> list | MARCReader:
+    if infile.name.endswith(".xml"):
+        return parse_xml_to_array(infile)
+    else:
+        return MARCReader(infile)
