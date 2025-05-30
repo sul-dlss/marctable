@@ -42,8 +42,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.sdist]
 packages = ["src/marctable"]
 include = [
-  "src/*.py",
-  "src/*.json"
+    "src/*.py",
+    "src/*.json"
 ]
 
 
@@ -53,6 +53,10 @@ log_cli_level = "INFO"
 pythonpath = [
     "src"
 ]
+markers = [
+    "crawl: marks optional crawling tests, select with '--crawl'"
+]
+      
 
 [tool.mypy]
 warn_no_return = false

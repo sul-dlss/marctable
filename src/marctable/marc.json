@@ -4,6 +4,12 @@
   "family": "marc",
   "language": "en",
   "fields": {
+    "LDR": {
+      "tag": "LDR",
+      "label": "Leader",
+      "repeatable": false,
+      "url": "https://www.loc.gov/marc/bibliographic/bdleader.html"
+    },
     "001": {
       "tag": "001",
       "label": "Control Number",

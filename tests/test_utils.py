@@ -7,7 +7,7 @@ from marctable.utils import dataframe_iter, to_csv, to_dataframe, to_parquet
 
 def test_to_dataframe() -> None:
     df = to_dataframe(MARCReader(open("test-data/utf8.marc", "rb")))
-    assert len(df.columns) == 215
+    assert len(df.columns) == 216
     assert len(df) == 10612
     assert df.iloc[0]["F008"] == "000110s2000    ohu    f   m        eng  "
     # 245 is not repeatable
@@ -18,6 +18,7 @@ def test_to_dataframe() -> None:
     )
     # 650 is repeatable
     assert df.iloc[0]["F650"] == ["Leak detectors.", "Gas leakage."]
+    assert df.iloc[0]["FLDR"] == "01729cmm a2200349 a 4500"
 
 
 def test_dataframe_iter() -> None:
@@ -35,7 +36,7 @@ def test_to_csv() -> None:
     )
     df = pandas.read_csv("test-data/utf8.csv")
     assert len(df) == 10612
-    assert len(df.columns) == 215
+    assert len(df.columns) == 216
     assert (
         df.iloc[0]["F245"]
         == "Leak testing CD-ROM [computer file] / technical editors, Charles N. "
@@ -52,7 +53,7 @@ def test_to_parquet() -> None:
     assert pathlib.Path("test-data/utf8.parquet").is_file()
     df = pandas.read_parquet("test-data/utf8.parquet")
     assert len(df) == 10612
-    assert len(df.columns) == 215
+    assert len(df.columns) == 216
 
 
 def test_to_parquet_iter() -> None:
@@ -63,7 +64,7 @@ def test_to_parquet_iter() -> None:
     )
     df = pandas.read_parquet("test-data/utf8.parquet")
     assert len(df) == 10612
-    assert len(df.columns) == 215
+    assert len(df.columns) == 216
 
 
 def test_to_parquet_with_rules() -> None:
