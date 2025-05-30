@@ -5,7 +5,7 @@ description = "Convert MARC to CSV and Parquet"
 authors = [{ name = "Ed Summers", email = "ehs@pobox.com" }]
 license = { file = "LICENSE" }
 readme = "README.md"
-requires-python = ">= 3.11" 
+requires-python = ">= 3.12" 
 dependencies = [
     "pymarc >= 5.1.0",
     "pyarrow >= 14.0.2",
