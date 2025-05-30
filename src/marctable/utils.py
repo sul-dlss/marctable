@@ -135,6 +135,10 @@ def process_records(
                 continue
 
             r: Dict[str, ListOrString] = {}
+
+            if "LDR" in mapping:
+                r["FLDR"] = str(record.leader)
+
             for field in record.fields:
                 if field.tag not in mapping:
                     continue

@@ -203,6 +203,19 @@ def make_field(url: str) -> Optional[Field]:
 # scrape the loc website for the marc fields
 def crawl(n: int = 0, quiet: bool = False, outfile: IO = sys.stdout) -> None:
     marc = MARC()
+
+    # add the leader field manually
+    marc.fields.append(
+        Field(
+            tag="LDR",
+            label="Leader",
+            subfields=[],
+            repeatable=False,
+            url="https://www.loc.gov/marc/bibliographic/bdleader.html",
+        )
+    )
+
+    # discover all the other fields!
     for f in fields():
         marc.fields.append(f)
         if not quiet:
@@ -212,9 +225,10 @@ def crawl(n: int = 0, quiet: bool = False, outfile: IO = sys.stdout) -> None:
     marc.to_avram(outfile)
 
 
+# www.loc.gov seems to like reusing the session
 http = requests.Session()
 
 
 def _soup(url: str) -> BeautifulSoup:
-    time.sleep(1)  # server seems to block if you crawl too fast
+    time.sleep(0.5)  # sleeping seems to help too...
     return BeautifulSoup(http.get(url).text, "html.parser")
