@@ -13,7 +13,7 @@ $ pip install marctable
 or just run it:
 
 ```
-$ pipx run marctable
+$ uvx marctable
 ```
 
 ## Usage
