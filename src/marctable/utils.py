@@ -146,7 +146,7 @@ def process_records(
                 subfields = mapping[field.tag]
 
                 # if subfields aren't specified stringify them
-                if subfields is None:
+                if "*" in subfields:
                     key = f"F{field.tag}"
                     if marc.get_field(field.tag).repeatable:
                         lst = r.get(key, [])
@@ -159,23 +159,22 @@ def process_records(
                         s = _stringify_field(field)
                         r[key] = s
 
-                # otherwise only add the subfields that were requested in the mapping
-                else:
-                    for sf in field.subfields:
-                        if sf.code not in subfields:
-                            continue
+                # look for requested subfields
+                for sf in field.subfields:
+                    if sf.code not in subfields:
+                        continue
 
-                        key = f"F{field.tag}{sf.code}"
-                        if marc.get_subfield(field.tag, sf.code).repeatable:
-                            value: ListOrString = r.get(key, [])
-                            assert isinstance(value, list), (
-                                "Repeatable field contains a string instead of list"
-                            )
-                            value.append(sf.value)
-                        else:
-                            value = sf.value
+                    key = f"F{field.tag}{sf.code}"
+                    if marc.get_subfield(field.tag, sf.code).repeatable:
+                        value: ListOrString = r.get(key, [])
+                        assert isinstance(value, list), (
+                            "Repeatable field contains a string instead of list"
+                        )
+                        value.append(sf.value)
+                    else:
+                        value = sf.value
 
-                        r[key] = value
+                    r[key] = value
 
             rows.append(r)
 
@@ -191,27 +190,53 @@ def _stringify_field(field: Field) -> str:
 
 def _mapping(rules: list, avram_file: Optional[BinaryIO] = None) -> dict:
     """
-    unpack the mapping rules into a dictionary for easy lookup
+    Unpack the mapping rules into a dictionary for easy lookup. "*" signifies
+    that the concatenated subfields are desired.
 
     >>> _mapping(["245", "260ac"])
-    {'245': None, '260': ['a', 'c']}
+    {'245': ['*'], '260': ['a', 'c']}
+
+    The full field can be extracted alongside its subfields by using "*" too:
+
+    >>> _mapping(["260", "260ac"])
+    {'260': ['*', 'a', 'c']}
     """
     marc = MARC.from_avram(avram_file)
+
+    # if there are no rules default to all fields
     if rules is None or len(rules) == 0:
         rules = [field.tag for field in marc.fields]
 
-    m = {}
+    m: dict[str, list[str]] = {}
     for rule in rules:
         field_tag = rule[0:3]
         if marc.get_field(field_tag) is None:
             raise Exception(f"unknown MARC field in mapping rule: {rule}")
 
-        subfields = set(list(rule[3:]))
-        for subfield_code in subfields:
-            if marc.get_subfield(field_tag, subfield_code) is None:
-                raise Exception(f"unknown MARC subfield in mapping rule: {rule}")
+        subfields = []
 
-        m[field_tag] = subfields or None
+        # if they just want the whole field
+        if field_tag == rule:
+            subfields.append("*")
+
+        # otherwise they want specific subfields
+        else:
+            for subfield_code in set(list(rule[3:])):
+                if marc.get_subfield(field_tag, subfield_code) is None:
+                    raise Exception(
+                        f"unknown MARC field/subfield in mapping rule: {rule}"
+                    )
+                subfields.append(subfield_code)
+
+        # it helps when testing that the values appear in order
+        subfields = list(sorted(subfields))
+
+        # look to see if we need to add the rule to an existing one
+        # this is important so that ["245", "245a"] works properly.
+        if field_tag in m:
+            m[field_tag].extend(subfields)
+        else:
+            m[field_tag] = subfields
 
     return m
 
@@ -222,10 +247,10 @@ def _columns(mapping: dict) -> list:
     """
     cols = []
     for field_tag, subfields in mapping.items():
-        if subfields is None:
-            cols.append(f"F{field_tag}")
-        else:
-            for sf in subfields:
+        for sf in subfields:
+            if sf == "*":
+                cols.append(f"F{field_tag}")
+            else:
                 cols.append(f"F{field_tag}{sf}")
     return cols
 
@@ -237,12 +262,12 @@ def _make_pandas_schema(
     mapping = _mapping(rules, avram_file)
     schema = {}
     for field_tag, subfields in mapping.items():
-        if subfields is None:
-            schema[f"F{field_tag}"] = (
-                "object" if marc.get_field(field_tag).repeatable else "str"
-            )
-        else:
-            for sf in subfields:
+        for sf in subfields:
+            if sf == "*":
+                schema[f"F{field_tag}"] = (
+                    "object" if marc.get_field(field_tag).repeatable else "str"
+                )
+            else:
                 schema[f"F{field_tag}{sf}"] = (
                     "object" if marc.get_subfield(field_tag, sf).repeatable else "str"
                 )
@@ -258,15 +283,16 @@ def _make_parquet_schema(
     pyarrow_str = pyarrow.string()
     pyarrow_list_of_str = pyarrow.list_(pyarrow.string())
 
+    # construct a pyarrow column schema based on the mapping
     cols: List[Tuple[str, pyarrow.DataType]] = []
     for field_tag, subfields in mapping.items():
-        if subfields is None:
-            if marc.get_field(field_tag).repeatable:
-                cols.append((f"F{field_tag}", pyarrow_list_of_str))
+        for sf_code in subfields:
+            if sf_code == "*":
+                if marc.get_field(field_tag).repeatable:
+                    cols.append((f"F{field_tag}", pyarrow_list_of_str))
+                else:
+                    cols.append((f"F{field_tag}", pyarrow_str))
             else:
-                cols.append((f"F{field_tag}", pyarrow_str))
-        else:
-            for sf_code in subfields:
                 sf = marc.get_subfield(field_tag, sf_code)
                 if sf is not None and sf.repeatable:
                     cols.append((f"F{field_tag}{sf}", pyarrow_list_of_str))

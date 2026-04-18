@@ -2,7 +2,7 @@ import pathlib
 
 import pandas
 from pymarc import MARCReader
-from marctable.utils import dataframe_iter, to_csv, to_dataframe, to_parquet
+from marctable.utils import dataframe_iter, to_csv, to_dataframe, to_parquet, _mapping
 
 
 def test_to_dataframe() -> None:
@@ -78,3 +78,60 @@ def test_to_parquet_with_rules() -> None:
     df = pandas.read_parquet("test-data/utf8.parquet")
     assert len(df) == 10612
     assert len(df.columns) == 3
+
+
+def test_mapping() -> None:
+    assert _mapping(["245"]) == {"245": ["*"]}
+    assert _mapping(["245", "650"]) == {"245": ["*"], "650": ["*"]}
+    assert _mapping(["040", "040a"]) == {"040": ["*", "a"]}
+    assert _mapping(["245a", "650ax", "260"]) == {
+        "245": ["a"],
+        "650": ["a", "x"],
+        "260": ["*"],
+    }
+
+
+def test_field_and_subfield(tmp_path) -> None:
+    """
+    Ensure we can specify both the field as a whole and individual subfields.
+    """
+    csv_path = tmp_path / "test.csv"
+    to_csv(
+        MARCReader(open("test-data/utf8.marc", "rb")),
+        csv_path.open("w"),
+        rules=["040", "040a"],
+    )
+    df = pandas.read_csv(csv_path)
+    assert len(df) == 10612
+    assert len(df.columns) == 2
+
+
+def test_custom_fields_df() -> None:
+    df = to_dataframe(
+        MARCReader(open("test-data/utf8.marc", "rb")), rules=["245", "650"]
+    )
+    assert len(df) == 10612
+    # should only have two columns in the dataframe
+    assert len(df.columns) == 2
+    assert df.columns[0] == "F245"
+    assert df.columns[1] == "F650"
+    assert (
+        df.iloc[0]["F245"]
+        == "Leak testing CD-ROM [computer file] / technical editors, Charles N. "
+        "Jackson, Jr., Charles N. Sherlock ; editor, Patrick O. Moore."
+    )
+    assert df.iloc[0]["F650"] == ["Leak detectors.", "Gas leakage."]
+
+
+def test_custom_subfields_df() -> None:
+    df = to_dataframe(
+        MARCReader(open("test-data/utf8.marc", "rb")), rules=["245a", "260c"]
+    )
+    assert len(df) == 10612
+    assert len(df.columns) == 2
+    assert df.columns[0] == "F245a"
+    assert df.columns[1] == "F260c"
+    # 245a is not repeatable
+    assert df.iloc[0]["F245a"] == "Leak testing CD-ROM"
+    # 260c is repeatable
+    assert df.iloc[0]["F260c"] == ["c2000."]

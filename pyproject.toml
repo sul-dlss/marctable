@@ -1,6 +1,6 @@
 [project]
 name = "marctable"
-version = "0.6.0"
+version = "0.7.0"
 description = "Convert MARC to CSV and Parquet"
 authors = [{ name = "Ed Summers", email = "ehs@pobox.com" }]
 license = { file = "LICENSE" }
@@ -26,11 +26,11 @@ dev = [
     "pytest>=7.4.3",
     "types-requests >= 2.31.0.10",
     "types-beautifulsoup4 >= 4.12.0.7",
-    "mypy >= 1.8.0",
     "pandas-stubs >= 2.1.4.231227",
     "pyarrow-stubs >= 10.0.1.7",
     "ruff>=0.9.6",
     "setuptools>=75.8.0",
+    "ty>=0.0.31",
 ]
 
 [build-system]

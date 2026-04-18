@@ -2,9 +2,7 @@ import json
 from io import StringIO
 
 import pytest
-from pymarc import MARCReader
 from marctable.marc import MARC, SchemaFieldError, SchemaSubfieldError, crawl
-from marctable.utils import _mapping, to_dataframe
 
 marc = MARC.from_avram()
 
@@ -68,47 +66,3 @@ def test_repeatable_field() -> None:
     assert f650.tag == "650"
     assert f650.label == "Subject Added Entry-Topical Term"
     assert f650.repeatable is True
-
-
-def test_custom_fields_df() -> None:
-    df = to_dataframe(
-        MARCReader(open("test-data/utf8.marc", "rb")), rules=["245", "650"]
-    )
-    assert len(df) == 10612
-    # should only have two columns in the dataframe
-    assert len(df.columns) == 2
-    assert df.columns[0] == "F245"
-    assert df.columns[1] == "F650"
-    assert (
-        df.iloc[0]["F245"]
-        == "Leak testing CD-ROM [computer file] / technical editors, Charles N. "
-        "Jackson, Jr., Charles N. Sherlock ; editor, Patrick O. Moore."
-    )
-    assert df.iloc[0]["F650"] == ["Leak detectors.", "Gas leakage."]
-
-
-def test_custom_subfields_df() -> None:
-    df = to_dataframe(
-        MARCReader(open("test-data/utf8.marc", "rb")), rules=["245a", "260c"]
-    )
-    assert len(df) == 10612
-    assert len(df.columns) == 2
-    assert df.columns[0] == "F245a"
-    assert df.columns[1] == "F260c"
-    # 245a is not repeatable
-    assert df.iloc[0]["F245a"] == "Leak testing CD-ROM"
-    # 260c is repeatable
-    assert df.iloc[0]["F260c"] == ["c2000."]
-
-
-def test_field_mapping() -> None:
-    m = _mapping(["245", "650"])
-    assert m["245"] is None
-    assert m["650"] is None
-
-
-def test_field_subfield_mapping() -> None:
-    m = _mapping(["245a", "650ax", "260"])
-    assert set(m["245"]) == set(["a"])
-    assert set(m["650"]) == set(["a", "x"])
-    assert m["260"] is None
