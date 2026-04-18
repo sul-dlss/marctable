@@ -1,6 +1,6 @@
 [project]
 name = "marctable"
-version = "0.7.0"
+version = "0.7.1"
 description = "Convert MARC to CSV and Parquet"
 authors = [{ name = "Ed Summers", email = "ehs@pobox.com" }]
 license = { file = "LICENSE" }
