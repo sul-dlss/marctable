@@ -32,7 +32,7 @@ class Subfield:
     def from_dict(cls: Type["Subfield"], d: dict) -> "Subfield":
         return Subfield(d["code"], d["label"], d["repeatable"])
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | bool]:
         return {"code": self.code, "label": self.label, "repeatable": self.repeatable}
 
 
@@ -70,7 +70,7 @@ class Field:
             subfields=[Subfield.from_dict(d) for d in d.get("subfields", {}).values()],
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str | bool | None]:
         d = {
             "tag": self.tag,
             "label": self.label,
@@ -79,7 +79,7 @@ class Field:
         }
 
         if self.subfields is not None:
-            d["subfields"] = {sf.code: sf.to_dict() for sf in self.subfields}
+            d["subfields"]: dict[str, dict] = {sf.code: sf.to_dict() for sf in self.subfields}
 
         return d
 
