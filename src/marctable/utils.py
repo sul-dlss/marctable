@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterator
 from itertools import batched
 from typing import (
     BinaryIO,
@@ -23,7 +24,7 @@ from .marc import MARC
 
 # type alises to shorten annotations
 ListOrString = Union[str, List[str]]
-Records = List[Record] | MARCReader
+Records = List[Record] | Iterator[Record] | MARCReader
 
 
 def to_csv(
