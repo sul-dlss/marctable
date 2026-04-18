@@ -295,7 +295,7 @@ def _make_parquet_schema(
             else:
                 sf = marc.get_subfield(field_tag, sf_code)
                 if sf is not None and sf.repeatable:
-                    cols.append((f"F{field_tag}{sf}", pyarrow_list_of_str))
+                    cols.append((f"F{field_tag}{sf.code}", pyarrow_list_of_str))
                 else:
-                    cols.append((f"F{field_tag}{sf}", pyarrow_str))
+                    cols.append((f"F{field_tag}{sf.code}", pyarrow_str))
     return pyarrow.schema(cols)  # type: ignore[arg-type]

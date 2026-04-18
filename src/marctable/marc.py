@@ -79,7 +79,9 @@ class Field:
         }
 
         if self.subfields is not None:
-            d["subfields"]: dict[str, dict] = {sf.code: sf.to_dict() for sf in self.subfields}
+            d["subfields"]: dict[str, dict] = {
+                sf.code: sf.to_dict() for sf in self.subfields
+            }
 
         return d
 

@@ -77,7 +77,7 @@ def test_to_parquet_with_rules() -> None:
     assert pathlib.Path("test-data/utf8.parquet").is_file()
     df = pandas.read_parquet("test-data/utf8.parquet")
     assert len(df) == 10612
-    assert len(df.columns) == 3
+    assert list(df.columns) == ["F001", "F245", "F650v"]
 
 
 def test_mapping() -> None:
