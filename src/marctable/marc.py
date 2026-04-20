@@ -15,7 +15,7 @@ import re
 import sys
 import time
 from functools import cache
-from typing import IO, Generator, List, Optional, Type
+from typing import IO, Any, Generator, List, Optional, Type
 from urllib.parse import urljoin
 
 import requests
@@ -70,8 +70,8 @@ class Field:
             subfields=[Subfield.from_dict(d) for d in d.get("subfields", {}).values()],
         )
 
-    def to_dict(self) -> dict[str, str | bool | None]:
-        d = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "tag": self.tag,
             "label": self.label,
             "repeatable": self.repeatable,
@@ -79,9 +79,7 @@ class Field:
         }
 
         if self.subfields is not None:
-            d["subfields"]: dict[str, dict] = {
-                sf.code: sf.to_dict() for sf in self.subfields
-            }
+            d["subfields"] = {sf.code: sf.to_dict() for sf in self.subfields}
 
         return d
 

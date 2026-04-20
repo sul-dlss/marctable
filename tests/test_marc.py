@@ -51,7 +51,7 @@ def test_get_subfield() -> None:
     with pytest.raises(
         SchemaSubfieldError, match="- is not a valid subfield in field 245"
     ):
-        marc.get_subfield("245", "-") is None
+        assert marc.get_subfield("245", "-") is None
 
 
 def test_non_repeatable_field() -> None:
