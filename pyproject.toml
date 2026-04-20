@@ -1,6 +1,6 @@
 [project]
 name = "marctable"
-version = "0.7.2"
+version = "0.8.0"
 description = "Convert MARC to CSV and Parquet"
 authors = [{ name = "Ed Summers", email = "ehs@pobox.com" }]
 license = { file = "LICENSE" }
@@ -56,6 +56,6 @@ markers = [
 ]
       
 
-[tool.mypy]
-warn_no_return = false
-exclude = "^dist.*"
+[tool.pyright]
+venvPath = "."
+venv = ".venv"

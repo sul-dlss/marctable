@@ -6,7 +6,9 @@ from pymarc import MARCReader
 from pymarc.marcxml import parse_xml_to_array
 
 from marctable.marc import crawl
-from marctable.utils import to_csv, to_jsonl, to_parquet
+from marctable.utils import Column, ColumnSpec, to_csv, to_jsonl, to_parquet
+
+__all__ = ["Column", "ColumnSpec", "to_csv", "to_jsonl", "to_parquet"]
 
 
 @click.group()
@@ -23,13 +25,13 @@ def io_params(f: Callable) -> Callable:
     return f
 
 
-def rule_params(f: Callable) -> Callable:
+def column_params(f: Callable) -> Callable:
     f = click.option(
-        "--rule",
-        "-r",
-        "rules",
+        "--column",
+        "-c",
+        "columns",
         multiple=True,
-        help="Specify a rule for extracting, e.g. 245 or 245a or 245ac",
+        help="Specify a column to extract, e.g. 245 or 245a or 245ac",
     )(f)
     f = click.option(
         "--batch", "-b", default=1000, help="Batch n records when converting"
@@ -53,46 +55,58 @@ def avram_params(f: Callable) -> Callable:
 
 @cli.command()
 @io_params
-@rule_params
+@column_params
 @avram_params
 def csv(
-    infile: BinaryIO, outfile: TextIO, rules: list, batch: int, avram_file: BinaryIO
+    infile: BinaryIO, outfile: TextIO, columns: list, batch: int, avram_file: BinaryIO
 ) -> None:
     """
     Convert MARC to CSV.
     """
     to_csv(
-        _records(infile), outfile, rules=rules, batch_size=batch, avram_file=avram_file
+        _records(infile),
+        outfile,
+        columns=list(columns),
+        batch_size=batch,
+        avram_file=avram_file,
     )
 
 
 @cli.command()
 @io_params
-@rule_params
+@column_params
 @avram_params
 def parquet(
-    infile: BinaryIO, outfile: IO[Any], rules: list, batch: int, avram_file: BinaryIO
+    infile: BinaryIO, outfile: IO[Any], columns: list, batch: int, avram_file: BinaryIO
 ) -> None:
     """
     Convert MARC to Parquet.
     """
     to_parquet(
-        _records(infile), outfile, rules=rules, batch_size=batch, avram_file=avram_file
+        _records(infile),
+        outfile,
+        columns=list(columns),
+        batch_size=batch,
+        avram_file=avram_file,
     )
 
 
 @cli.command()
 @io_params
-@rule_params
+@column_params
 @avram_params
 def jsonl(
-    infile: BinaryIO, outfile: BinaryIO, rules: list, batch: int, avram_file: BinaryIO
+    infile: BinaryIO, outfile: BinaryIO, columns: list, batch: int, avram_file: BinaryIO
 ) -> None:
     """
     Convert MARC to JSON Lines (JSONL)
     """
     to_jsonl(
-        _records(infile), outfile, rules=rules, batch_size=batch, avram_file=avram_file
+        _records(infile),
+        outfile,
+        columns=list(columns),
+        batch_size=batch,
+        avram_file=avram_file,
     )
 
 

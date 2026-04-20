@@ -1,8 +1,12 @@
 import json
 from collections.abc import Iterator
+from dataclasses import dataclass
 from itertools import batched
 from typing import (
+    IO,
+    Any,
     BinaryIO,
+    Callable,
     Dict,
     Generator,
     List,
@@ -10,27 +14,43 @@ from typing import (
     TextIO,
     Tuple,
     Union,
-    IO,
-    Any,
 )
 
 import pandas
 import pyarrow
 from pandas import DataFrame
 from pyarrow.parquet import ParquetWriter
-from pymarc import Record, Field, MARCReader
+from pymarc import Field, MARCReader, Record
 
 from .marc import MARC
 
-# type alises to shorten annotations
+# type aliases to shorten annotations
 ListOrString = Union[str, List[str]]
 Records = List[Record] | Iterator[Record] | MARCReader
+
+
+@dataclass
+class Column:
+    name: str
+    fn: Callable[[Record], Any]
+
+
+ColumnSpec = str | Column
+
+
+def _split_columns(
+    columns: list[ColumnSpec],
+) -> tuple[list[str], list[Column]]:
+    """Split a columns list into MARC string rules and Column objects."""
+    str_rules = [c for c in columns if isinstance(c, str)]
+    col_objects = [c for c in columns if isinstance(c, Column)]
+    return str_rules, col_objects
 
 
 def to_csv(
     records: Records,
     csv_output: TextIO,
-    rules: list = [],
+    columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> None:
@@ -39,7 +59,7 @@ def to_csv(
     """
     first_batch = True
     for df in dataframe_iter(
-        records, rules=rules, batch_size=batch_size, avram_file=avram_file
+        records, columns=columns, batch_size=batch_size, avram_file=avram_file
     ):
         df.to_csv(csv_output, header=first_batch, index=False)
         first_batch = False
@@ -48,7 +68,7 @@ def to_csv(
 def to_jsonl(
     records: Records,
     jsonl_output: BinaryIO,
-    rules: list = [],
+    columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> None:
@@ -56,7 +76,7 @@ def to_jsonl(
     Convert MARC to JSON Lines (JSONL).
     """
     for records_batch in process_records(
-        records, rules=rules, batch_size=batch_size, avram_file=avram_file
+        records, columns=columns, batch_size=batch_size, avram_file=avram_file
     ):
         for record in records_batch:
             jsonl_output.write(json.dumps(record).encode("utf8") + b"\n")
@@ -65,17 +85,17 @@ def to_jsonl(
 def to_parquet(
     records: Records,
     parquet_output: IO[Any],
-    rules: list = [],
+    columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> None:
     """
     Convert MARC to Parquet.
     """
-    schema = _make_parquet_schema(rules, avram_file)
+    schema = _make_parquet_schema(columns, avram_file)
     writer = ParquetWriter(parquet_output, schema, compression="snappy")
     for records_batch in process_records(
-        records, rules=rules, batch_size=batch_size, avram_file=avram_file
+        records, columns=columns, batch_size=batch_size, avram_file=avram_file
     ):
         table = pyarrow.Table.from_pylist(records_batch, schema)
         writer.write_table(table)
@@ -85,8 +105,8 @@ def to_parquet(
 
 def to_dataframe(
     records: Records,
-    rules: list = [],
-    batch_size=1000,
+    columns: list[ColumnSpec] = [],
+    batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> DataFrame:
     """
@@ -94,37 +114,38 @@ def to_dataframe(
     WARNING: It will build the entire DataFrame in memory, so be careful!
     """
     return pandas.concat(
-        list(dataframe_iter(records, rules, batch_size, avram_file)), axis=0
+        list(dataframe_iter(records, columns, batch_size, avram_file)), axis=0
     )
 
 
 def dataframe_iter(
     records: Records,
-    rules: list = [],
+    columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> Generator[DataFrame, None, None]:
     """
     Read the records and generates Panda Data Frames of a given size.
     """
-    columns = _columns(_mapping(rules, avram_file))
+    col_names = _columns(columns, avram_file)
     for records_batch in process_records(
-        records, rules, batch_size, avram_file=avram_file
+        records, columns, batch_size, avram_file=avram_file
     ):
-        yield DataFrame.from_records(records_batch, columns=columns)
+        yield DataFrame.from_records(records_batch, columns=col_names)
 
 
 def process_records(
     records: Records,
-    rules: list = [],
+    columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
 ) -> Generator[List[Dict], None, None]:
     """
     Iterate through MARCRecords and return a generator of batches of records
-    represented as a list of dictionaries, which are constructed with the given rules.
+    represented as a list of dictionaries, which are constructed with the given columns.
     """
-    mapping = _mapping(rules, avram_file)
+    str_rules, col_objects = _split_columns(columns)
+    mapping = _mapping(str_rules, col_objects, avram_file)
     marc = MARC.from_avram(avram_file)
 
     for batch in batched(records, batch_size):
@@ -177,6 +198,10 @@ def process_records(
 
                     r[key] = value
 
+            # now add any function based columns
+            for col in col_objects:
+                r[col.name] = col.fn(record)
+
             rows.append(r)
 
         yield rows
@@ -189,23 +214,28 @@ def _stringify_field(field: Field) -> str:
         return " ".join([sf.value for sf in field.subfields])
 
 
-def _mapping(rules: list, avram_file: Optional[BinaryIO] = None) -> dict:
+def _mapping(
+    rules: list, col_objects: list, avram_file: Optional[BinaryIO] = None
+) -> dict:
     """
     Unpack the mapping rules into a dictionary for easy lookup. "*" signifies
     that the concatenated subfields are desired.
 
-    >>> _mapping(["245", "260ac"])
+    >>> _mapping(["245", "260ac"], [])
     {'245': ['*'], '260': ['a', 'c']}
 
     The full field can be extracted alongside its subfields by using "*" too:
 
-    >>> _mapping(["260", "260ac"])
+    >>> _mapping(["260", "260ac"], [])
     {'260': ['*', 'a', 'c']}
+
+    The col_objects need to be passed in because when they are in use we don't
+    want to return the default mapping for all MARC fields.
     """
     marc = MARC.from_avram(avram_file)
 
-    # if there are no rules default to all fields
-    if rules is None or len(rules) == 0:
+    # if there are no rules AND col_objects is not being used, default to all MARC fields
+    if (rules is None or len(rules) == 0) and len(col_objects) == 0:
         rules = [field.tag for field in marc.fields]
 
     m: dict[str, list[str]] = {}
@@ -242,44 +272,35 @@ def _mapping(rules: list, avram_file: Optional[BinaryIO] = None) -> dict:
     return m
 
 
-def _columns(mapping: dict) -> list:
+def _columns(
+    columns: list[ColumnSpec], avram_file: Optional[BinaryIO] = None
+) -> list[str]:
     """
-    unpack the mapping to get a list of columns for the table
+    Unpack the columns to get a list of column names for the table.
     """
-    cols = []
+    str_rules, col_objects = _split_columns(columns)
+    mapping = _mapping(str_rules, col_objects, avram_file)
+
+    cols: list[str] = []
     for field_tag, subfields in mapping.items():
         for sf in subfields:
             if sf == "*":
                 cols.append(f"F{field_tag}")
             else:
                 cols.append(f"F{field_tag}{sf}")
+
+    for col in col_objects:
+        cols.append(col.name)
+
     return cols
 
 
-def _make_pandas_schema(
-    rules: list, avram_file: Optional[BinaryIO] = None
-) -> Dict[str, str]:
-    marc = MARC.from_avram(avram_file)
-    mapping = _mapping(rules, avram_file)
-    schema = {}
-    for field_tag, subfields in mapping.items():
-        for sf in subfields:
-            if sf == "*":
-                schema[f"F{field_tag}"] = (
-                    "object" if marc.get_field(field_tag).repeatable else "str"
-                )
-            else:
-                schema[f"F{field_tag}{sf}"] = (
-                    "object" if marc.get_subfield(field_tag, sf).repeatable else "str"
-                )
-    return schema
-
-
 def _make_parquet_schema(
-    rules: list, avram_file: Optional[BinaryIO] = None
+    columns: list[ColumnSpec], avram_file: Optional[BinaryIO] = None
 ) -> pyarrow.Schema:
     marc = MARC.from_avram(avram_file)
-    mapping = _mapping(rules, avram_file)
+    str_rules, col_objects = _split_columns(columns)
+    mapping = _mapping(str_rules, col_objects, avram_file)
 
     pyarrow_str = pyarrow.string()
     pyarrow_list_of_str = pyarrow.list_(pyarrow.string())
@@ -299,4 +320,8 @@ def _make_parquet_schema(
                     cols.append((f"F{field_tag}{sf.code}", pyarrow_list_of_str))
                 else:
                     cols.append((f"F{field_tag}{sf.code}", pyarrow_str))
+
+    for col in col_objects:
+        cols.append((col.name, pyarrow_str))
+
     return pyarrow.schema(cols)  # type: ignore[arg-type]

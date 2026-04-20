@@ -38,10 +38,10 @@ FLDR,F001,F003,F005,F006,F007,F008,F010,F013,F015,F016,F017,F018,F020,F022,F023,
 01278cmm a2200313 a 4500,   00022453 ,DLC,20020304100307.0,,['cj||||'],000119s2000    mau    f   b        eng  ,   00022453 ,,,,,,,,,,,,,,,,,,,,,,,DLC DLC DLC,,,,,,,,,['TK7871.6'],,,,,,,,,,,,['621.382 13'],,,,,,"Kolundžija, Branko M.",,,,,,,,,"WIPL-D [computer file] : electromagnetic modeling of composite metallic and dielectric structures / Branko Kolundzija, Jovan S. Ognjanovic, and Tapan K. Sarkar.",,,,,,,Computer program.,,,"['Boston : Artech House, c2000.']",,,,"[""2 computer disks ; 3 1/2 in. + 1 user's manual.""]",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,['Title from disk label.'],,,,,,,,,,,,,,,"['Provides analysis of metallic and/or dielectric/magnetic structures such as antennas, scatterers, and passive microwave circuits.']",['Engineers.'],,,,,,,,,,,['System requirements: IBM-compatible PC (Pentium preferred); 16MB RAM; Windows 95 or NT; 6MB hard disk space; mouse.'],,,,,,,,,,,,,,,,,,,,,,,,,,,,,,"['Antennas (Electronics) Software.', 'Microwave circuits Software.', 'Electromagnetic waves Software.']",,,,,,,,,,"['Ognjanovic, Jovan S.', 'Sarkar, Tapan (Tapan K.)']",,,,,,,,,,,,,,,,,,,,,,,,,,,
 ```
 
-If you only want specific field and subfields you can pass in one or more rules. This will extract the `245` subfield `a`, the 650 subfields `a` and `v`, and the entirety of the  `500` fields, all as separate columns:
+If you only want specific fields and subfields you can pass in one or more `--column` options. This will extract the `245` subfield `a`, the `650` subfields `a` and `v`, and the entirety of the `500` fields, all as separate columns:
 
 ```
-$ marctable csv --rule 245a --rule 650av --rule 500 data.marc data.csv 
+$ marctable csv --column 245a --column 650av --column 500 data.marc data.csv 
 ```
 
 ```csv
@@ -65,10 +65,10 @@ You can also write the data as a [Parquet] file, which has advantages in that it
 $ marctable parquet data.marc data.parquet
 ```
 
-or with rules:
+or with explicit columns:
 
 ```
-$ marctable parquet --rules 245a --rule 650a data.marc data.parquet
+$ marctable parquet --column 245a --column 650a data.marc data.parquet
 ```
 
 ### JSONL
@@ -89,7 +89,7 @@ $ marctable avram
 
 ## Library
 
-You can use marctable in your own programs. You need to pass various functions either a list of `pymarc.Record` objects or a generator of `pymarc.Record` objects:
+You can use marctable in your own programs. You need to pass various functions either a list of `pymarc.Record` objects or a generator/iterator of `pymarc.Record` objects:
 
 ```python
 from pymarc import MARCReader
@@ -103,6 +103,28 @@ to_parquet(records, open("records.parquet", "wb"))
 ```
 
 There are similar `to_csv()`, `to_jsonl()` and `to_dataframe()` functions as well. Be careful with `to_dataframe()` because unlike the other functions it will load all the records into memory.
+
+You can also define custom columns using the `Column` class, which takes a name and a function that receives a `pymarc.Record` and returns a value:
+
+```python
+from pymarc import MARCReader
+from marctable import to_parquet, Column
+
+records = MARCReader(open("records.dat", "rb"))
+
+to_parquet(
+    records,
+    open("records.parquet", "wb"),
+    columns=[
+        "245a",
+        "650",
+        Column("subject_count", lambda r: len(r.get_fields("650", "651", "600"))),
+        Column("is_electronic", lambda r: r.leader[6] == "m"),
+    ],
+)
+```
+
+String columns and `Column` objects can be freely mixed in the same list.
 
 ## Develop
 
