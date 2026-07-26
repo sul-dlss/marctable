@@ -36,6 +36,13 @@ def column_params(f: Callable) -> Callable:
     f = click.option(
         "--batch", "-b", default=1000, help="Batch n records when converting"
     )(f)
+    f = click.option(
+        "--indicators",
+        "-i",
+        is_flag=True,
+        default=False,
+        help="Include field indicators as F{tag}_ind1/F{tag}_ind2 columns",
+    )(f)
     return f
 
 
@@ -58,7 +65,12 @@ def avram_params(f: Callable) -> Callable:
 @column_params
 @avram_params
 def csv(
-    infile: BinaryIO, outfile: TextIO, columns: list, batch: int, avram_file: BinaryIO
+    infile: BinaryIO,
+    outfile: TextIO,
+    columns: list,
+    batch: int,
+    indicators: bool,
+    avram_file: BinaryIO,
 ) -> None:
     """
     Convert MARC to CSV.
@@ -69,6 +81,7 @@ def csv(
         columns=list(columns),
         batch_size=batch,
         avram_file=avram_file,
+        indicators=indicators,
     )
 
 
@@ -77,7 +90,12 @@ def csv(
 @column_params
 @avram_params
 def parquet(
-    infile: BinaryIO, outfile: IO[Any], columns: list, batch: int, avram_file: BinaryIO
+    infile: BinaryIO,
+    outfile: IO[Any],
+    columns: list,
+    batch: int,
+    indicators: bool,
+    avram_file: BinaryIO,
 ) -> None:
     """
     Convert MARC to Parquet.
@@ -88,6 +106,7 @@ def parquet(
         columns=list(columns),
         batch_size=batch,
         avram_file=avram_file,
+        indicators=indicators,
     )
 
 
@@ -96,7 +115,12 @@ def parquet(
 @column_params
 @avram_params
 def jsonl(
-    infile: BinaryIO, outfile: BinaryIO, columns: list, batch: int, avram_file: BinaryIO
+    infile: BinaryIO,
+    outfile: BinaryIO,
+    columns: list,
+    batch: int,
+    indicators: bool,
+    avram_file: BinaryIO,
 ) -> None:
     """
     Convert MARC to JSON Lines (JSONL)
@@ -107,6 +131,7 @@ def jsonl(
         columns=list(columns),
         batch_size=batch,
         avram_file=avram_file,
+        indicators=indicators,
     )
 
 

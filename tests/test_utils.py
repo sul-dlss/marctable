@@ -1,6 +1,7 @@
 import pathlib
 
 import pandas
+import pyarrow
 from pymarc import MARCReader
 from marctable.utils import (
     dataframe_iter,
@@ -172,6 +173,59 @@ def test_column_func_mix() -> None:
 
     # function based column was populated
     assert df.iloc[0]["field_count"] == 27
+
+
+def test_indicators_df() -> None:
+    df = to_dataframe(
+        MARCReader(open("test-data/utf8.marc", "rb")),
+        columns=["245", "650", "008"],
+        indicators=True,
+    )
+    # control fields (008) get no indicator columns, data fields get two each
+    assert list(df.columns) == [
+        "F245",
+        "F245_ind1",
+        "F245_ind2",
+        "F650",
+        "F650_ind1",
+        "F650_ind2",
+        "F008",
+    ]
+
+    # 245 is not repeatable, so its indicators are scalars
+    assert df.iloc[0]["F245_ind1"] == "0"
+    assert df.iloc[0]["F245_ind2"] == "0"
+
+    # 650 is repeatable, so its indicators are lists aligned with the values
+    assert df.iloc[0]["F650"] == ["Leak detectors.", "Gas leakage."]
+    assert df.iloc[0]["F650_ind1"] == [" ", " "]  # blank indicators preserved
+    assert df.iloc[0]["F650_ind2"] == ["0", "0"]
+
+
+def test_indicators_off_by_default() -> None:
+    df = to_dataframe(
+        MARCReader(open("test-data/utf8.marc", "rb")), columns=["245", "650"]
+    )
+    assert list(df.columns) == ["F245", "F650"]
+
+
+def test_indicators_parquet(tmp_path) -> None:
+    import pyarrow.parquet as pq
+
+    parquet_path = tmp_path / "indicators.parquet"
+    to_parquet(
+        MARCReader(open("test-data/utf8.marc", "rb")),
+        parquet_path.open("wb"),
+        columns=["245", "650", "008"],
+        indicators=True,
+    )
+    schema = pq.read_schema(parquet_path)
+    # non-repeatable field indicators are strings
+    assert schema.field("F245_ind1").type == pyarrow.string()
+    # repeatable field indicators are lists of strings
+    assert schema.field("F650_ind1").type == pyarrow.list_(pyarrow.string())
+    # control fields have no indicator columns
+    assert "F008_ind1" not in schema.names
 
 
 def test_one_column_func() -> None:

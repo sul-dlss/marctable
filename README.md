@@ -71,6 +71,21 @@ or with explicit columns:
 $ marctable parquet --column 245a --column 650a data.marc data.parquet
 ```
 
+### Indicators
+
+MARC field indicators aren't included by default, but you can add them with the
+`--indicators` (`-i`) option, which works with the `csv`, `parquet`, and `jsonl`
+subcommands. For each data field in the output two extra columns are added,
+`F{tag}_ind1` and `F{tag}_ind2`, e.g. `F245_ind1`/`F245_ind2`. As with the field
+values themselves, repeatable fields get lists of indicators (aligned with the
+field occurrences) and non-repeatable fields get a single value. Blank
+indicators are preserved as a space. Control fields (00X) and the leader have no
+indicators, so they get no indicator columns.
+
+```
+$ marctable parquet --indicators --column 245 --column 650 data.marc data.parquet
+```
+
 ### JSONL
 
 And you can write the table as JSON Lines (JSONL), where each line is a distinct JSON object.
