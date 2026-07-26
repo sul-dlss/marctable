@@ -53,13 +53,18 @@ def to_csv(
     columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> None:
     """
     Convert MARC to CSV.
     """
     first_batch = True
     for df in dataframe_iter(
-        records, columns=columns, batch_size=batch_size, avram_file=avram_file
+        records,
+        columns=columns,
+        batch_size=batch_size,
+        avram_file=avram_file,
+        indicators=indicators,
     ):
         df.to_csv(csv_output, header=first_batch, index=False)
         first_batch = False
@@ -71,12 +76,17 @@ def to_jsonl(
     columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> None:
     """
     Convert MARC to JSON Lines (JSONL).
     """
     for records_batch in process_records(
-        records, columns=columns, batch_size=batch_size, avram_file=avram_file
+        records,
+        columns=columns,
+        batch_size=batch_size,
+        avram_file=avram_file,
+        indicators=indicators,
     ):
         for record in records_batch:
             jsonl_output.write(json.dumps(record).encode("utf8") + b"\n")
@@ -88,14 +98,19 @@ def to_parquet(
     columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> None:
     """
     Convert MARC to Parquet.
     """
-    schema = _make_parquet_schema(columns, avram_file)
+    schema = _make_parquet_schema(columns, avram_file, indicators=indicators)
     writer = ParquetWriter(parquet_output, schema, compression="snappy")
     for records_batch in process_records(
-        records, columns=columns, batch_size=batch_size, avram_file=avram_file
+        records,
+        columns=columns,
+        batch_size=batch_size,
+        avram_file=avram_file,
+        indicators=indicators,
     ):
         table = pyarrow.Table.from_pylist(records_batch, schema)
         writer.write_table(table)
@@ -108,13 +123,19 @@ def to_dataframe(
     columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> DataFrame:
     """
     A convenience function that returns a single DataFrame for all the records.
     WARNING: It will build the entire DataFrame in memory, so be careful!
     """
     return pandas.concat(
-        list(dataframe_iter(records, columns, batch_size, avram_file)), axis=0
+        list(
+            dataframe_iter(
+                records, columns, batch_size, avram_file, indicators=indicators
+            )
+        ),
+        axis=0,
     )
 
 
@@ -123,13 +144,14 @@ def dataframe_iter(
     columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> Generator[DataFrame, None, None]:
     """
     Read the records and generates Panda Data Frames of a given size.
     """
-    col_names = _columns(columns, avram_file)
+    col_names = _columns(columns, avram_file, indicators=indicators)
     for records_batch in process_records(
-        records, columns, batch_size, avram_file=avram_file
+        records, columns, batch_size, avram_file=avram_file, indicators=indicators
     ):
         yield DataFrame.from_records(records_batch, columns=col_names)
 
@@ -139,6 +161,7 @@ def process_records(
     columns: list[ColumnSpec] = [],
     batch_size: int = 1000,
     avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> Generator[List[Dict], None, None]:
     """
     Iterate through MARCRecords and return a generator of batches of records
@@ -197,6 +220,22 @@ def process_records(
                         value = sf.value
 
                     r[key] = value
+
+                # optionally capture the field's indicators, aligned by
+                # occurrence order with the field's other values
+                if indicators and not field.is_control_field():
+                    repeatable = marc.get_field(field.tag).repeatable
+                    for n, ind in ((1, field.indicator1), (2, field.indicator2)):
+                        key = f"F{field.tag}_ind{n}"
+                        if repeatable:
+                            lst = r.get(key, [])
+                            assert isinstance(lst, list), (
+                                "Repeatable field contains a string instead of a list"
+                            )
+                            lst.append(ind)
+                            r[key] = lst
+                        else:
+                            r[key] = ind
 
             # now add any function based columns
             for col in col_objects:
@@ -273,11 +312,14 @@ def _mapping(
 
 
 def _columns(
-    columns: list[ColumnSpec], avram_file: Optional[BinaryIO] = None
+    columns: list[ColumnSpec],
+    avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> list[str]:
     """
     Unpack the columns to get a list of column names for the table.
     """
+    marc = MARC.from_avram(avram_file)
     str_rules, col_objects = _split_columns(columns)
     mapping = _mapping(str_rules, col_objects, avram_file)
 
@@ -288,6 +330,9 @@ def _columns(
                 cols.append(f"F{field_tag}")
             else:
                 cols.append(f"F{field_tag}{sf}")
+        if indicators and _has_indicators(marc, field_tag):
+            cols.append(f"F{field_tag}_ind1")
+            cols.append(f"F{field_tag}_ind2")
 
     for col in col_objects:
         cols.append(col.name)
@@ -296,7 +341,9 @@ def _columns(
 
 
 def _make_parquet_schema(
-    columns: list[ColumnSpec], avram_file: Optional[BinaryIO] = None
+    columns: list[ColumnSpec],
+    avram_file: Optional[BinaryIO] = None,
+    indicators: bool = False,
 ) -> pyarrow.Schema:
     marc = MARC.from_avram(avram_file)
     str_rules, col_objects = _split_columns(columns)
@@ -321,7 +368,27 @@ def _make_parquet_schema(
                 else:
                     cols.append((f"F{field_tag}{sf.code}", pyarrow_str))
 
+        # indicators mirror the field's repeatability, one column per indicator
+        if indicators and _has_indicators(marc, field_tag):
+            ind_type = (
+                pyarrow_list_of_str
+                if marc.get_field(field_tag).repeatable
+                else pyarrow_str
+            )
+            cols.append((f"F{field_tag}_ind1", ind_type))
+            cols.append((f"F{field_tag}_ind2", ind_type))
+
     for col in col_objects:
         cols.append((col.name, pyarrow_str))
 
     return pyarrow.schema(cols)  # type: ignore[arg-type]
+
+
+def _has_indicators(marc: MARC, field_tag: str) -> bool:
+    """
+    Only data fields carry indicators; control fields (00X) and the leader
+    (LDR) have no subfields in the Avram schema, so they get no indicator
+    columns.
+    """
+    field = marc.get_field(field_tag)
+    return len(field.subfields) > 0
